@@ -1,0 +1,273 @@
+---
+title: "Assignment_1_NDVI_Trace"
+author: "Nicole Ross"
+date: "9/9/2019"
+output: html_document
+# bibliography: cite.bib
+---
+
+```{r setup, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(tidyr)
+library(ggthemes)
+library(lubridate)
+```
+
+## Assignment 1
+
+This markdown file works on assignment 1 in Hayman Fire NDVI Trace.
+
+
+### Reading in data
+
+This code takes in the separate NDMI, NDSI, and NDVI datasets, cleans them, and then stacks them into one dataset called "full_long".
+
+```{r data_read, warning = FALSE, message = FALSE}
+files <- list.files('data',full.names=T)
+files
+#View(files)
+
+#Read in individual data files
+ndmi <- read.csv(files[1]) %>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndmi')
+
+ndsi <- read.csv(files[2]) %>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndsi')
+
+ndvi <- read_csv(files[3])%>% 
+  rename(burned=2,unburned=3) %>%
+  mutate(data='ndvi')
+
+```
+
+
+### Stacking and Gathering the Data
+
+I tried to test my coding knowledge of R by attempting to get rid of NAs *before* gathering. However, this approach does not work because I get rid of some observations that do not have NAs in them.
+
+Remember, that *arrange* is the equivalent of *sort* or *gsort* in Stata, while *gather* 
+is the equivalent of *reshape wide to long* in Stata, and *spread* is the equivalent of 
+*reshape long to wide* in Stata.
+
+```{r stacking_gathering}
+ 
+# Stack as a tidy dataset
+  full_long <- rbind(ndvi,ndmi,ndsi) %>%
+  arrange(DateTime, data) %>%
+  
+#Gather the data  
+gather(key='site',value='value',-DateTime,-data) %>%
+  filter(!is.na(value)) %>%
+  arrange(DateTime, site)
+  #View(full_long)
+```
+
+
+### Question 1
+
+What is the correlation between NDVI and NDMI? - here I want you to convert the full_long dataset in to a wide dataset using the function "spread" and then make a plot that shows the correlation as a
+function of if the site was burned or not
+
+
+#### Nicole's Code and Comments
+
+For ease, I named the plot here, p1. To show correlations and perform other related analyses (e.g., regressions, etc.), I need to *spread* the data into a wide dataset.
+  
+
+```{r question 1}
+
+#View(full_long)
+?spread
+full_wide <- spread(data=full_long, key='data', value='value') %>%
+  filter_if(is.numeric, all_vars(!is.na(.)))
+    #summary(full_wide)
+    #View(full_wide)
+
+    p1 <- ggplot(full_wide, aes(x=ndmi, y=ndvi, color=site)) +
+        geom_point() +
+        theme_few() +
+        scale_color_few() +
+        theme(legend.position=c(.2, .2))
+    p1
+```
+
+
+### Question 2
+
+What is the correlation between average NDSI (normalized snow index) for January - April and average NDVI for June-August? In other words, does the previous year's snow cover influence vegetation
+growth for the following summer? 
+
+
+#### Nicole's Code and Comments
+
+For this question, I will need to use the *filter* command, which is the equivalent of selecting rows of data that match the criteria I give it to filter through. I will also need to *mutate* the data, which is the equivalent of *generate* in Stata. I will also need to use the *group_by* command.
+
+This question also entails making two separate datasets and then *merging* them back together again (Stata speak), which is the equivlanet of using a *join* in R.
+
+```{r question 2}
+
+full_wide <- spread(data=full_long, key='data', value='value') %>%
+    filter_if(is.numeric, all_vars(!is.na(.))) %>%
+    mutate(month = month(DateTime),
+          year = year(DateTime)) 
+    
+winter_only <- filter(full_wide, month %in% c(1,2,3,4)) %>%
+    group_by(year) %>%
+    summarize(ndsi=mean(ndsi))
+
+summer_only <- filter(full_wide, month %in% c(6,7,8)) %>%
+    group_by(year) %>%
+    summarize(ndvi=mean(ndvi))
+
+winter_summer_together <- inner_join(winter_only, summer_only, by = "year")
+
+      p2 <- ggplot(winter_summer_together, aes(x=ndsi, y=ndvi)) +
+          geom_point() +
+          theme_few() +
+          scale_color_few() +
+          theme(legend.position=c(.2, .2))
+      p2
+```
+
+Based on the plot, there does not appear to be a correlation between NDSI and NDVI.
+
+
+### Question 3
+
+How is the snow effect from question 2 different between pre- and post-burn and burned and unburned? 
+
+
+#### Nicole's Code and Comments
+
+This question appears to be asking us to replicate question 2 plot, but splitting the points along the two dimensions. I make three plots below to show the relationship depending on how the question is worded.
+
+```{r question 3}
+
+full_wide_treatment <- spread(data=full_long, key='data', value='value') %>%
+    filter_if(is.numeric, all_vars(!is.na(.))) %>%
+    mutate(month = month(DateTime),
+         year = year(DateTime),
+         treatment = cut(year,breaks=c(0,2003,2020),
+                labels=c('pre-burn','post-burn'))) 
+  
+ winter_only_treatment <- filter(full_wide_treatment, month %in% c(1,2,3,4)) %>%
+      group_by(year, site, treatment) %>%
+      summarize(ndsi=mean(ndsi))
+    
+    summer_only_treatment <- filter(full_wide_treatment, month %in% c(6,7,8)) %>%
+      group_by(year, site, treatment) %>%
+      summarize(ndvi=mean(ndvi))
+    
+    winter_summer_treatment_together <- inner_join(winter_only_treatment, 
+      summer_only_treatment, by = c("year" = "year", "site" = "site", "treatment"= "treatment"))
+     
+     
+    
+    p3 <- ggplot(winter_summer_treatment_together, aes(x=ndsi, y=ndvi, color=treatment)) +
+      geom_point() +
+      theme_few() +
+      scale_color_few() +
+      theme(legend.position=c(.8, .2))
+    p3
+    
+    
+    p4 <- ggplot(winter_summer_treatment_together, aes(x=ndsi, y=ndvi, color=site)) +
+      geom_point() +
+      theme_few() +
+      scale_color_few() +
+      theme(legend.position=c(.8, .2))
+    p4
+    
+    
+     p5 <- ggplot(winter_summer_treatment_together, aes(x=ndsi, y=ndvi, color=site)) +
+      geom_point() +
+      theme_few() +
+      scale_color_few() +
+      theme(legend.position=c(.2, .2)) +
+      facet_wrap(~treatment)
+    p5
+
+```
+
+The points are clustered in the post-burn period. Pre-burn, there is no relationship between NDSI and NDVI in either the burned or unburned areas. Howeer, in the post-burn era, the same value of NDSI yields differnt NDVI values for the burned and unburned areas. Burned areas, on average, had a lower NDVI for the same average NDSI value compared to unburned areas.
+
+
+### Question 4 
+
+What month is the greenest month on average? Does this change in the burned plots after the fire? 
+
+
+#### Nicole's Code and Comments
+
+This question requires us to aggregate information to each month and then plot that.
+
+```{r question 4.1}
+
+ndvi_month_wide <-select(full_wide, -ndmi, -ndsi) %>%
+                  group_by(month) %>%
+                  summarize(ndvi=mean(ndvi))
+
+#View(ndvi_month_wide)
+
+  p6 <- ggplot(ndvi_month_wide, aes(x=month, y=ndvi)) +
+      geom_point() +
+      theme_few() +
+      scale_color_few()
+  p6
+    
+```
+
+According to the NDVI data, the greenest month on average, inclusive of years 1984 to present, is August.
+
+If we want to know how this changed in the burned plots after the fire, I will want to plot NDVI pre-burn and post-burn by month.
+
+```{r question 4.2}
+
+ndvi_month_wide_burn <-select(full_wide, site, ndvi, month, year) %>%
+                  filter(site=="burned") %>%
+                  mutate(treatment = cut(year,breaks=c(0,2003,2020),
+                     labels=c('pre-burn','post-burn'))) %>%
+                  group_by(month, treatment) %>%
+                  summarize(ndvi=mean(ndvi))
+
+#View(ndvi_month_wide)
+
+  p7 <- ggplot(ndvi_month_wide_burn, aes(x=month, y=ndvi, color=treatment)) +
+      geom_point() +
+      theme_few() +
+      scale_color_few() +
+       theme(legend.position=c(.6, .2)) 
+  p7
+    
+```
+
+In the burned plots, the greenest month is still August, even after the burn. 
+
+
+### Question 5
+
+What month is the snowiest on average?
+
+
+#### Nicole's Code and Comments
+
+```{r question 5}
+
+ndsi_month_wide <-select(full_wide, -ndmi, -ndvi) %>%
+                  group_by(month) %>%
+                  summarize(ndsi=mean(ndsi))
+
+#View(ndsi_month_wide)
+
+  p8 <- ggplot(ndsi_month_wide, aes(x=month, y=ndsi)) +
+      geom_point() +
+      theme_few() +
+      scale_color_few()
+  p8
+  
+```
+
+On average, the snowiest month is January, followed by February in a close second.
+
